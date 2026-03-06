@@ -12,6 +12,7 @@ from datetime import datetime
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=3, max_length=1000)
     thread_id: Optional[str] = None  # null = new thread
+    parent_node_id: Optional[str] = None  # which node this follows up on
     context: Optional[dict] = None   # optional filters like warehouse_id, client_id
 
     class Config:

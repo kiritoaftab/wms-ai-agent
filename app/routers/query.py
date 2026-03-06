@@ -34,6 +34,8 @@ async def query(request: QueryRequest):
     thread_id = request.thread_id
     conversation_history = None
 
+    parent_node_id = request.parent_node_id
+
     if thread_id:
         # Follow-up: load conversation history for context
         conversation_history = thread_manager.get_conversation_history(thread_id)
@@ -54,6 +56,7 @@ async def query(request: QueryRequest):
         # Save error to thread and return
         node_id = thread_manager.add_node(
             thread_id=thread_id,
+            parent_node_id=parent_node_id,
             question=request.question,
             error=str(e),
         )
@@ -72,6 +75,7 @@ async def query(request: QueryRequest):
     if generation_result.get("validation_error"):
         node_id = thread_manager.add_node(
             thread_id=thread_id,
+            parent_node_id=parent_node_id,
             question=request.question,
             sql_generated=generation_result.get("raw_response"),
             error=generation_result["validation_error"],
@@ -87,6 +91,7 @@ async def query(request: QueryRequest):
     if not sql:
         node_id = thread_manager.add_node(
             thread_id=thread_id,
+            parent_node_id=parent_node_id,
             question=request.question,
             summary="This question can't be answered from the warehouse database.",
             error="No SQL generated",
@@ -104,6 +109,7 @@ async def query(request: QueryRequest):
     except QueryExecutionError as e:
         node_id = thread_manager.add_node(
             thread_id=thread_id,
+            parent_node_id=parent_node_id,
             question=request.question,
             sql_generated=sql,
             error=str(e),
@@ -144,6 +150,7 @@ async def query(request: QueryRequest):
     # ── Step 6: Save to thread ────────────────────────────────
     node_id = thread_manager.add_node(
         thread_id=thread_id,
+        parent_node_id=parent_node_id,
         question=request.question,
         sql_generated=sql,
         data=data,
@@ -183,5 +190,6 @@ async def follow_up(request: FollowUpRequest):
     return await query(QueryRequest(
         question=request.question,
         thread_id=request.thread_id,
+        parent_node_id=request.parent_node_id,
         context=None,
     ))
