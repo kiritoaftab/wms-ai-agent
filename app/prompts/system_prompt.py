@@ -260,6 +260,366 @@ inventory_transactions (
     created_at DATETIME
 )
 
+### Outbound Operations:
+
+-- Sales Orders: customer outbound orders
+sales_orders (
+    id INT PK,
+    order_no VARCHAR,           -- format: SO-00001
+    warehouse_id INT FK → warehouses.id,
+    client_id INT FK → clients.id,
+    customer_name VARCHAR,      -- end customer / consignee
+    customer_email VARCHAR,
+    customer_phone VARCHAR,
+    ship_to_name VARCHAR,
+    ship_to_address_line1 VARCHAR,
+    ship_to_address_line2 VARCHAR,
+    ship_to_city VARCHAR,
+    ship_to_state VARCHAR,
+    ship_to_country VARCHAR,
+    ship_to_pincode VARCHAR,
+    ship_to_phone VARCHAR,
+    order_date DATETIME,
+    order_type ENUM('STANDARD','EXPRESS','SAME_DAY','NEXT_DAY','RETURN','REPLACEMENT'),
+    priority ENUM('NORMAL','HIGH','URGENT'),
+    sla_due_date DATETIME,      -- ship-by deadline
+    carrier VARCHAR,            -- DHL, FedEx, Blue Dart, etc.
+    carrier_service VARCHAR,
+    tracking_number VARCHAR,    -- AWB / tracking number
+    reference_no VARCHAR,       -- customer PO or external reference
+    total_lines INT,
+    total_ordered_units DECIMAL,
+    total_allocated_units DECIMAL,
+    total_picked_units DECIMAL,
+    total_packed_units DECIMAL,
+    total_shipped_units DECIMAL,
+    status ENUM('DRAFT','CONFIRMED','ALLOCATED','PARTIAL_ALLOCATION','PICKING','PICKED','PACKING','PACKED','SHIPPED','DELIVERED','CANCELLED','ON_HOLD'),
+    allocation_status ENUM('PENDING','PARTIAL','FULL','FAILED'),
+    payment_mode ENUM('PREPAID','COD','CREDIT'),
+    cod_amount DECIMAL,
+    invoice_no VARCHAR,
+    invoice_date DATE,
+    invoice_value DECIMAL,
+    currency VARCHAR,
+    special_instructions JSON,
+    notes TEXT,
+    confirmed_at DATETIME,
+    allocated_at DATETIME,
+    picking_started_at DATETIME,
+    picking_completed_at DATETIME,
+    packing_started_at DATETIME,
+    packing_completed_at DATETIME,
+    shipped_at DATETIME,
+    delivered_at DATETIME,
+    cancelled_at DATETIME,
+    cancellation_reason TEXT,
+    created_at DATETIME,
+    updated_at DATETIME,
+    created_by INT FK → users.id
+)
+
+-- Sales Order Lines: individual SKU lines within a sales order
+sales_order_lines (
+    id INT PK,
+    order_id INT FK → sales_orders.id,
+    line_no INT,               -- line number within order (1, 2, 3...)
+    sku_id INT FK → skus.id,
+    ordered_qty DECIMAL,
+    allocated_qty DECIMAL,
+    picked_qty DECIMAL,
+    packed_qty DECIMAL,
+    shipped_qty DECIMAL,
+    short_qty DECIMAL,         -- ordered - shipped
+    uom VARCHAR,
+    allocation_rule ENUM('FIFO','FEFO','LIFO'),
+    batch_preference VARCHAR,  -- specific batch requested by customer
+    expiry_date_min DATE,      -- minimum acceptable expiry date
+    unit_price DECIMAL,
+    line_total DECIMAL,        -- ordered_qty * unit_price
+    discount_percent DECIMAL,
+    discount_amount DECIMAL,
+    tax_percent DECIMAL,
+    tax_amount DECIMAL,
+    status ENUM('PENDING','ALLOCATED','PARTIAL_ALLOCATION','PICKING','PICKED','PACKED','SHIPPED','CANCELLED','SHORT'),
+    notes TEXT,
+    cancelled_at DATETIME,
+    cancellation_reason TEXT
+)
+
+-- Stock Allocations: inventory reservations made for order lines
+stock_allocations (
+    id INT PK,
+    allocation_no VARCHAR,     -- format: ALLOC-00001
+    order_id INT FK → sales_orders.id,
+    order_line_id INT FK → sales_order_lines.id,
+    sku_id INT FK → skus.id,
+    inventory_id INT FK → inventory.id,
+    location_id INT FK → locations.id,
+    warehouse_id INT FK → warehouses.id,
+    allocated_qty DECIMAL,     -- quantity reserved from inventory
+    consumed_qty DECIMAL,      -- quantity actually picked
+    remaining_qty DECIMAL,     -- allocated_qty - consumed_qty
+    batch_no VARCHAR,
+    serial_no VARCHAR,
+    expiry_date DATE,
+    allocation_rule ENUM('FIFO','FEFO','LIFO'),
+    status ENUM('ACTIVE','CONSUMED','RELEASED','EXPIRED'),
+    -- ACTIVE=reserved, CONSUMED=picked, RELEASED=deallocated
+    allocated_at DATETIME,
+    consumed_at DATETIME,
+    released_at DATETIME,
+    released_reason TEXT,
+    created_at DATETIME,
+    updated_at DATETIME,
+    created_by INT FK → users.id
+)
+
+-- Pick Waves: batched groups of orders released together for picking
+pick_waves (
+    id INT PK,
+    wave_no VARCHAR,            -- format: PW-00001
+    warehouse_id INT FK → warehouses.id,
+    wave_type ENUM('TIME_BASED','CARRIER_BASED','ZONE_BASED','PRIORITY_BASED','MANUAL'),
+    wave_strategy ENUM('BATCH','ZONE_PICKING','CLUSTER_PICKING','WAVE_PICKING'),
+    priority ENUM('NORMAL','HIGH','URGENT'),
+    carrier VARCHAR,            -- carrier if CARRIER_BASED wave
+    carrier_cutoff_time DATETIME,
+    zone_filter VARCHAR,        -- comma-separated zones if ZONE_BASED
+    total_orders INT,
+    total_lines INT,
+    total_units DECIMAL,
+    picked_units DECIMAL,
+    total_tasks INT,
+    completed_tasks INT,
+    status ENUM('PENDING','RELEASED','IN_PROGRESS','COMPLETED','CANCELLED'),
+    notes TEXT,
+    released_at DATETIME,
+    released_by INT FK → users.id,
+    picking_started_at DATETIME,
+    picking_completed_at DATETIME,
+    cancelled_at DATETIME,
+    cancellation_reason TEXT,
+    created_at DATETIME,
+    updated_at DATETIME,
+    created_by INT FK → users.id
+)
+
+-- Pick Wave Orders: junction table linking orders to a wave
+pick_wave_orders (
+    id INT PK,
+    wave_id INT FK → pick_waves.id,
+    order_id INT FK → sales_orders.id,
+    added_at DATETIME
+)
+-- UNIQUE constraint: (wave_id, order_id)
+
+-- Pick Tasks: individual pick instructions for warehouse staff
+pick_tasks (
+    id INT PK,
+    task_no VARCHAR,            -- format: PICK-00001
+    wave_id INT FK → pick_waves.id,
+    order_id INT FK → sales_orders.id,
+    order_line_id INT FK → sales_order_lines.id,
+    sku_id INT FK → skus.id,
+    inventory_id INT FK → inventory.id,
+    source_location_id INT FK → locations.id,   -- pick from here
+    staging_location_id INT FK → locations.id,  -- stage picked items here
+    qty_to_pick DECIMAL,
+    qty_picked DECIMAL,
+    qty_short DECIMAL,          -- qty_to_pick - qty_picked
+    batch_no VARCHAR,
+    serial_no VARCHAR,
+    expiry_date DATE,
+    status ENUM('PENDING','ASSIGNED','IN_PROGRESS','COMPLETED','SHORT_PICK','CANCELLED','FAILED'),
+    priority INT,               -- 1=highest, 10=lowest
+    pick_sequence INT,          -- optimized picking order within wave
+    assigned_to INT FK → users.id,
+    short_pick_reason ENUM('OUT_OF_STOCK','DAMAGED_INVENTORY','LOCATION_EMPTY','WRONG_BATCH','EXPIRED','OTHER'),
+    short_pick_notes TEXT,
+    notes TEXT,
+    assigned_at DATETIME,
+    pick_started_at DATETIME,
+    pick_completed_at DATETIME,
+    cancelled_at DATETIME,
+    cancellation_reason TEXT,
+    created_at DATETIME,
+    updated_at DATETIME,
+    created_by INT FK → users.id
+)
+
+### Packing & Shipping:
+
+-- Cartons: physical boxes packed during the packing stage
+cartons (
+    id INT PK,
+    carton_no VARCHAR,          -- format: CTN-00001
+    sales_order_id INT FK → sales_orders.id,
+    warehouse_id INT FK → warehouses.id,
+    carton_type ENUM('SMALL','MEDIUM','LARGE','EXTRA_LARGE','CUSTOM'),
+    length DECIMAL,             -- cm
+    width DECIMAL,              -- cm
+    height DECIMAL,             -- cm
+    gross_weight DECIMAL,       -- kg (tare + net)
+    tare_weight DECIMAL,        -- empty box weight in kg
+    net_weight DECIMAL,         -- items weight in kg
+    total_items INT,            -- total quantity packed
+    status ENUM('OPEN','CLOSED','SHIPPED'),
+    packed_by INT FK → users.id,
+    closed_at DATETIME,
+    notes TEXT,
+    created_at DATETIME,
+    updated_at DATETIME
+)
+
+-- Carton Items: SKU line items packed inside a carton
+carton_items (
+    id INT PK,
+    carton_id INT FK → cartons.id,
+    sales_order_line_id INT FK → sales_order_lines.id,
+    sku_id INT FK → skus.id,
+    qty INT,
+    batch_no VARCHAR,
+    serial_no VARCHAR,
+    expiry_date DATE,
+    created_at DATETIME,
+    updated_at DATETIME
+)
+
+-- Shipments: outbound shipment dispatch records
+shipments (
+    id INT PK,
+    shipment_no VARCHAR,        -- format: SHP-00001
+    sales_order_id INT FK → sales_orders.id,
+    warehouse_id INT FK → warehouses.id,
+    carrier_id INT FK → carriers.id,
+    awb_no VARCHAR,             -- Air Waybill / tracking number
+    total_cartons INT,
+    total_weight DECIMAL,       -- sum of all carton gross weights in kg
+    ship_to_name VARCHAR,
+    ship_to_address TEXT,
+    ship_to_city VARCHAR,
+    ship_to_state VARCHAR,
+    ship_to_pincode VARCHAR,
+    ship_to_phone VARCHAR,
+    shipping_method ENUM('STANDARD','EXPRESS','SAME_DAY','ECONOMY'),
+    estimated_delivery_date DATE,
+    shipping_cost DECIMAL,
+    status ENUM('CREATED','DISPATCHED','IN_TRANSIT','OUT_FOR_DELIVERY','DELIVERED','RTO','EXCEPTION','CANCELLED'),
+    -- RTO = Return To Origin
+    dispatched_at DATETIME,
+    dispatched_by INT FK → users.id,
+    delivered_at DATETIME,
+    notes TEXT,
+    created_at DATETIME,
+    updated_at DATETIME
+)
+
+### Billing:
+
+-- Rate Cards: client-specific pricing rules for warehouse services
+rate_cards (
+    id INT PK,
+    rate_card_name VARCHAR,
+    client_id INT FK → clients.id,
+    warehouse_id INT FK → warehouses.id,  -- NULL = all warehouses
+    charge_type ENUM('STORAGE','INBOUND_HANDLING','PUTAWAY','PICKING','PACKING','SHIPPING_ADMIN','VALUE_ADDED_SERVICE','OTHER'),
+    billing_basis ENUM('PER_UNIT_PER_DAY','PER_PALLET_PER_DAY','PER_SQFT_PER_DAY','PER_UNIT','PER_PALLET','PER_CASE','PER_LINE','PER_ORDER','PER_CARTON','PER_SHIPMENT','PER_KG','FLAT_RATE'),
+    rate DECIMAL,
+    currency VARCHAR,
+    min_charge DECIMAL,         -- minimum charge per billing period
+    effective_from DATE,
+    effective_to DATE,          -- NULL = currently active
+    description TEXT,
+    is_active BOOLEAN,
+    created_at DATETIME,
+    updated_at DATETIME
+)
+
+-- Billable Events: individual charge records generated by WMS activity
+billable_events (
+    id INT PK,
+    event_id VARCHAR,           -- format: EVT-00001
+    warehouse_id INT FK → warehouses.id,
+    client_id INT FK → clients.id,
+    charge_type ENUM('STORAGE','INBOUND_HANDLING','PUTAWAY','PICKING','PACKING','SHIPPING_ADMIN','VALUE_ADDED_SERVICE','MANUAL','OTHER'),
+    reference_type ENUM('GRN','PUTAWAY','SALES_ORDER','SHIPMENT','STORAGE_PERIOD','MANUAL'),
+    reference_id INT,           -- FK to source record
+    reference_no VARCHAR,       -- human-readable ref (GRN-00001, etc.)
+    billing_basis VARCHAR,      -- copied from rate card at time of event
+    qty DECIMAL,                -- billable quantity (units, pallets, days, etc.)
+    rate DECIMAL,               -- rate applied
+    amount DECIMAL,             -- qty * rate
+    currency VARCHAR,
+    rate_card_id INT FK → rate_cards.id,
+    storage_start_date DATE,    -- for STORAGE events
+    storage_end_date DATE,
+    storage_details JSON,       -- daily breakdown for storage period
+    event_date DATE,            -- when the billable activity occurred
+    description TEXT,
+    status ENUM('PENDING','READY','BLOCKED','INVOICED','VOID'),
+    -- PENDING=calculated, READY=reviewed, BLOCKED=missing rate card, INVOICED=included in invoice
+    blocked_reason VARCHAR,
+    invoice_id INT FK → invoices.id,  -- set when included in an invoice
+    notes TEXT,
+    created_at DATETIME,
+    updated_at DATETIME
+)
+
+-- Invoices: client billing invoices covering a period
+invoices (
+    id INT PK,
+    invoice_no VARCHAR,         -- format: INV-2026-0001
+    warehouse_id INT FK → warehouses.id,
+    client_id INT FK → clients.id,
+    period_start DATE,
+    period_end DATE,
+    invoice_date DATE,
+    due_date DATE,
+    subtotal DECIMAL,           -- sum of all billable events before tax
+    cgst_rate DECIMAL,          -- Central GST %
+    cgst_amount DECIMAL,
+    sgst_rate DECIMAL,          -- State GST %
+    sgst_amount DECIMAL,
+    igst_rate DECIMAL,          -- Integrated GST % (inter-state)
+    igst_amount DECIMAL,
+    tax_amount DECIMAL,         -- total tax = CGST+SGST or IGST
+    total_amount DECIMAL,       -- subtotal + tax_amount
+    paid_amount DECIMAL,
+    balance_due DECIMAL,        -- total_amount - paid_amount
+    currency VARCHAR,
+    supplier_gstin VARCHAR,
+    client_gstin VARCHAR,
+    place_of_supply VARCHAR,
+    status ENUM('DRAFT','SENT','PARTIAL','PAID','OVERDUE','VOID','CANCELLED'),
+    sent_at DATETIME,
+    paid_at DATETIME,
+    notes TEXT,
+    created_at DATETIME,
+    updated_at DATETIME
+)
+
+-- Payments: payments received against invoices
+payments (
+    id INT PK,
+    payment_no VARCHAR,         -- format: PAY-00001
+    invoice_id INT FK → invoices.id,
+    client_id INT FK → clients.id,
+    amount DECIMAL,
+    currency VARCHAR,
+    payment_date DATE,
+    payment_method ENUM('BANK_TRANSFER','NEFT','RTGS','UPI','CHEQUE','CASH','CREDIT_NOTE','OTHER'),
+    reference_no VARCHAR,       -- UTR number, cheque number, UPI ref, etc.
+    bank_name VARCHAR,
+    tds_amount DECIMAL,         -- TDS deducted by client
+    notes TEXT,
+    status ENUM('RECORDED','CONFIRMED','REVERSED'),
+    recorded_by INT FK → users.id,
+    confirmed_by INT FK → users.id,
+    confirmed_at DATETIME,
+    created_at DATETIME,
+    updated_at DATETIME
+)
+
 
 ## BUSINESS GLOSSARY — Use these mappings:
 
@@ -278,13 +638,42 @@ inventory_transactions (
 | "supplier", "vendor" | Who ships goods to warehouse (suppliers table) |
 | "product", "item", "SKU" | skus table |
 | "location", "bin", "slot" | locations table |
-| "shipment", "ASN" | asns table |
+| "shipment" (inbound context) | asns table |
+| "shipment" (outbound context) | shipments table |
+| "ASN", "inbound shipment" | asns table |
+| "outbound shipment", "dispatch" | shipments table |
 | "receipt", "GRN" | grns table |
 | "zone" | locations.zone |
 | "warehouse utilization" | SUM(locations.current_usage) / SUM(locations.capacity) |
+| "order", "sales order", "SO" | sales_orders table |
+| "order line" | sales_order_lines table |
+| "customer" | sales_orders.customer_name (end recipient, not client) |
+| "allocation", "reserved stock" | stock_allocations WHERE status = 'ACTIVE' |
+| "unallocated orders" | sales_orders WHERE allocation_status IN ('PENDING','FAILED') |
+| "pick wave", "wave" | pick_waves table |
+| "pick task", "picking task" | pick_tasks table |
+| "short pick", "picking shortage" | pick_tasks WHERE status = 'SHORT_PICK' |
+| "pending picks" | pick_tasks WHERE status IN ('PENDING','ASSIGNED') |
+| "completed picks" | pick_tasks WHERE status = 'COMPLETED' |
+| "carton", "box", "packed box" | cartons table |
+| "courier", "carrier" | carriers table |
+| "AWB", "tracking number" (outbound) | shipments.awb_no |
+| "tracking number" (order-level) | sales_orders.tracking_number |
+| "RTO", "return to origin" | shipments WHERE status = 'RTO' |
+| "rate card", "pricing" | rate_cards table |
+| "billable event", "charge" | billable_events table |
+| "unbilled", "pending billing" | billable_events WHERE status IN ('PENDING','READY') |
+| "invoice", "bill" | invoices table |
+| "overdue invoice" | invoices WHERE status = 'OVERDUE' OR (due_date < CURDATE() AND balance_due > 0) |
+| "outstanding", "balance due" | invoices.balance_due WHERE status NOT IN ('PAID','VOID','CANCELLED') |
+| "payment" | payments table |
+| "COD order" | sales_orders WHERE payment_mode = 'COD' |
+| "express order", "urgent order" | sales_orders WHERE order_type IN ('EXPRESS','SAME_DAY','NEXT_DAY') OR priority = 'URGENT' |
+| "SLA breach", "late orders" | sales_orders WHERE sla_due_date < NOW() AND status NOT IN ('SHIPPED','DELIVERED','CANCELLED') |
 | "this week" | WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) |
 | "this month" | WHERE MONTH(col) = MONTH(CURDATE()) AND YEAR(col) = YEAR(CURDATE()) |
 | "today" | WHERE DATE(col) = CURDATE() |
+| "expiring soon" | WHERE expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) |
 
 ## RESPONSE FORMAT:
 You must respond in EXACTLY this format:

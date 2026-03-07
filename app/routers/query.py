@@ -3,7 +3,8 @@ Query Router — handles NL query requests and orchestrates the full pipeline.
 """
 
 import time
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.utils.auth import verify_token
 
 from app.models.schemas import QueryRequest, FollowUpRequest, QueryResponse, ChartSuggestion
 from app.services.sql_generator import SQLGenerator, SQLGenerationError
@@ -22,13 +23,14 @@ thread_manager = ThreadManager()
 
 
 @router.post("/query", response_model=QueryResponse)
-async def query(request: QueryRequest):
+async def query(request: QueryRequest, token=Depends(verify_token)):
     """
     Main endpoint: accepts natural language question, returns data + summary.
 
     Pipeline: NL → SQL Generation → Validation → Execution → Summarization
     """
     total_start = time.time()
+    user_id = str(token.get("userId")) if token.get("userId") else None
 
     # ── Step 1: Resolve thread ────────────────────────────────
     thread_id = request.thread_id
@@ -43,7 +45,7 @@ async def query(request: QueryRequest):
         # New thread: create one
         # Use first 60 chars of question as thread title
         title = request.question[:60] + ("..." if len(request.question) > 60 else "")
-        thread_id = thread_manager.create_thread(title)
+        thread_id = thread_manager.create_thread(title, user_id=user_id)
 
     # ── Step 2: Generate SQL ──────────────────────────────────
     try:
@@ -176,7 +178,7 @@ async def query(request: QueryRequest):
 
 
 @router.post("/follow-up", response_model=QueryResponse)
-async def follow_up(request: FollowUpRequest):
+async def follow_up(request: FollowUpRequest, _=Depends(verify_token)):
     """
     Follow-up question within an existing thread.
     Uses conversation history for context.

@@ -24,3 +24,4 @@ python-dotenv==1.0.1
 
 # Security
 sqlparse==0.5.3
+python-jose[cryptography]==3.3.0

@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     query_timeout_seconds: int = 10
     cors_origins: str = "http://localhost:5173,http://localhost:3001"
 
+    # JWT (shared with WMS ERP)
+    jwt_secret_key: str
+    jwt_algorithm: str = "HS256"
+
     @property
     def cors_origin_list(self) -> List[str]:
         return [origin.strip() for origin in self.cors_origins.split(",")]

@@ -25,6 +25,7 @@ class ThreadManager:
                 CREATE TABLE IF NOT EXISTS threads (
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
+                    user_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -49,6 +50,10 @@ class ThreadManager:
                 CREATE INDEX IF NOT EXISTS idx_nodes_thread
                     ON thread_nodes(thread_id);
             """)
+            # Migrate existing DB: add user_id column if it doesn't exist
+            existing_cols = [row[1] for row in conn.execute("PRAGMA table_info(threads)").fetchall()]
+            if "user_id" not in existing_cols:
+                conn.execute("ALTER TABLE threads ADD COLUMN user_id TEXT")
 
     @contextmanager
     def _get_conn(self):
@@ -61,15 +66,15 @@ class ThreadManager:
         finally:
             conn.close()
 
-    def create_thread(self, title: str) -> str:
+    def create_thread(self, title: str, user_id: Optional[str] = None) -> str:
         """Create a new thread. Returns thread_id."""
         thread_id = f"t-{uuid.uuid4().hex[:12]}"
         now = datetime.utcnow().isoformat()
 
         with self._get_conn() as conn:
             conn.execute(
-                "INSERT INTO threads (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                (thread_id, title, now, now),
+                "INSERT INTO threads (id, title, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (thread_id, title, user_id, now, now),
             )
 
         return thread_id
@@ -140,18 +145,30 @@ class ThreadManager:
                 "nodes": [self._node_to_dict(n) for n in nodes],
             }
 
-    def list_threads(self, limit: int = 50) -> list[dict]:
-        """List recent threads."""
+    def list_threads(self, limit: int = 50, user_id: Optional[str] = None) -> list[dict]:
+        """List recent threads, optionally filtered by user."""
         with self._get_conn() as conn:
-            threads = conn.execute(
-                """SELECT t.*, COUNT(n.id) as node_count
-                   FROM threads t
-                   LEFT JOIN thread_nodes n ON t.id = n.thread_id
-                   GROUP BY t.id
-                   ORDER BY t.updated_at DESC
-                   LIMIT ?""",
-                (limit,),
-            ).fetchall()
+            if user_id:
+                threads = conn.execute(
+                    """SELECT t.*, COUNT(n.id) as node_count
+                       FROM threads t
+                       LEFT JOIN thread_nodes n ON t.id = n.thread_id
+                       WHERE t.user_id = ?
+                       GROUP BY t.id
+                       ORDER BY t.updated_at DESC
+                       LIMIT ?""",
+                    (user_id, limit),
+                ).fetchall()
+            else:
+                threads = conn.execute(
+                    """SELECT t.*, COUNT(n.id) as node_count
+                       FROM threads t
+                       LEFT JOIN thread_nodes n ON t.id = n.thread_id
+                       GROUP BY t.id
+                       ORDER BY t.updated_at DESC
+                       LIMIT ?""",
+                    (limit,),
+                ).fetchall()
 
             return [
                 {

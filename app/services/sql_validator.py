@@ -13,6 +13,9 @@ ALLOWED_TABLES = {
     "skus", "asns", "asn_lines", "asn_line_pallets",
     "grns", "grn_lines", "pallets",
     "warehouses", "clients", "suppliers", "docks", "locations",
+    "sales_orders", "sales_order_lines", "stock_allocations",
+    "pick_waves", "pick_wave_orders", "pick_tasks", "cartons", "carton_items","shipments",
+    "rate_cards","billable_events","invoices","payments"
 }
 
 # Tables explicitly blocked (sensitive data)
