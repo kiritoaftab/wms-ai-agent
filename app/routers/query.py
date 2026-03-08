@@ -178,7 +178,7 @@ async def query(request: QueryRequest, token=Depends(verify_token)):
 
 
 @router.post("/follow-up", response_model=QueryResponse)
-async def follow_up(request: FollowUpRequest, _=Depends(verify_token)):
+async def follow_up(request: FollowUpRequest, token=Depends(verify_token)):
     """
     Follow-up question within an existing thread.
     Uses conversation history for context.
@@ -194,4 +194,4 @@ async def follow_up(request: FollowUpRequest, _=Depends(verify_token)):
         thread_id=request.thread_id,
         parent_node_id=request.parent_node_id,
         context=None,
-    ))
+    ), token=token)
