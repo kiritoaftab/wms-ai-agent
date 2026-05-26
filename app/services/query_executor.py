@@ -1,11 +1,15 @@
 """
-Query Executor — runs validated SQL against the WMS MySQL database.
+Query Executor — runs validated SQL against the HMS PostgreSQL database.
 Uses a read-only connection with timeouts and row limits.
 """
 
 import time
-import mysql.connector
-from mysql.connector import Error as MySQLError
+from decimal import Decimal
+from uuid import UUID
+
+import psycopg2
+import psycopg2.extras
+from psycopg2 import OperationalError, DatabaseError
 
 from app.config import get_settings
 
@@ -18,22 +22,25 @@ class QueryExecutionError(Exception):
 class QueryExecutor:
     def __init__(self):
         self._settings = get_settings()
-        self._pool = None
 
     def _get_connection(self):
-        """Get a connection from pool or create one."""
+        """Create a new read-only database connection."""
+        settings = self._settings
+        timeout_ms = settings.query_timeout_seconds * 1000
         try:
-            conn = mysql.connector.connect(
-                host=self._settings.wms_db_host,
-                port=self._settings.wms_db_port,
-                database=self._settings.wms_db_name,
-                user=self._settings.wms_db_user,
-                password=self._settings.wms_db_password,
-                connection_timeout=5,
-                autocommit=True,   # read-only, no transaction needed
+            conn = psycopg2.connect(
+                host=settings.hms_db_host,
+                port=settings.hms_db_port,
+                dbname=settings.hms_db_name,
+                user=settings.hms_db_user,
+                password=settings.hms_db_password,
+                connect_timeout=5,
+                # Set statement timeout at connection level
+                options=f"-c statement_timeout={timeout_ms}",
             )
+            conn.autocommit = True
             return conn
-        except MySQLError as e:
+        except OperationalError as e:
             raise QueryExecutionError(f"Database connection failed: {str(e)}")
 
     def execute(self, sql: str) -> dict:
@@ -46,36 +53,34 @@ class QueryExecutor:
             - row_count: number of rows returned
             - execution_time_ms: query execution time
         """
-        settings = self._settings
         conn = None
 
         try:
             conn = self._get_connection()
-            cursor = conn.cursor(dictionary=True)
-
-            # Set query timeout at session level
-            cursor.execute(
-                f"SET SESSION MAX_EXECUTION_TIME = {settings.query_timeout_seconds * 1000}"
-            )
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
             start_time = time.time()
             cursor.execute(sql)
             rows = cursor.fetchall()
             execution_time = (time.time() - start_time) * 1000
 
-            # Get column names
             columns = [desc[0] for desc in cursor.description] if cursor.description else []
 
-            # Convert any non-serializable types
             data = []
             for row in rows:
                 clean_row = {}
-                for key, value in row.items():
-                    if isinstance(value, bytes):
-                        clean_row[key] = value.decode("utf-8", errors="replace")
+                for key, value in dict(row).items():
+                    if value is None:
+                        clean_row[key] = None
+                    elif isinstance(value, UUID):
+                        clean_row[key] = str(value)
+                    elif isinstance(value, Decimal):
+                        clean_row[key] = float(value)
                     elif hasattr(value, "isoformat"):
                         clean_row[key] = value.isoformat()
-                    elif isinstance(value, (int, float, str, bool, type(None))):
+                    elif isinstance(value, (bytes, memoryview)):
+                        clean_row[key] = bytes(value).decode("utf-8", errors="replace")
+                    elif isinstance(value, (int, float, str, bool)):
                         clean_row[key] = value
                     else:
                         clean_row[key] = str(value)
@@ -90,19 +95,18 @@ class QueryExecutor:
                 "execution_time_ms": round(execution_time, 2),
             }
 
-        except MySQLError as e:
+        except DatabaseError as e:
             error_msg = str(e)
-            # Don't leak internal DB details
-            if "MAX_EXECUTION_TIME" in error_msg or "timeout" in error_msg.lower():
+            if "statement timeout" in error_msg.lower() or "canceling statement" in error_msg.lower():
                 raise QueryExecutionError("Query timed out. Try a more specific question.")
-            elif "Unknown column" in error_msg:
+            elif "column" in error_msg.lower() and "does not exist" in error_msg.lower():
                 raise QueryExecutionError(f"Query referenced an invalid column: {error_msg}")
-            elif "doesn't exist" in error_msg:
+            elif "relation" in error_msg.lower() and "does not exist" in error_msg.lower():
                 raise QueryExecutionError(f"Query referenced an invalid table: {error_msg}")
             else:
                 raise QueryExecutionError(f"Query execution failed: {error_msg}")
         finally:
-            if conn and conn.is_connected():
+            if conn and conn.closed == 0:
                 conn.close()
 
     def test_connection(self) -> bool:

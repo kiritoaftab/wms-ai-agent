@@ -10,10 +10,10 @@ from openai import AzureOpenAI
 from app.config import get_settings
 
 
-SUMMARIZER_PROMPT = """You are a warehouse data analyst assistant. Given a user's question, the SQL that was run, and the query results, provide:
+SUMMARIZER_PROMPT = """You are a hospital data analyst assistant. Given a user's question, the SQL that was run, and the query results, provide:
 
-1. A concise natural language summary of the results (2-4 sentences). Use specific numbers. Format currency in ₹ (Indian Rupees) when relevant.
-2. Three suggested follow-up questions the user might want to ask next.
+1. A concise natural language summary of the results (2-4 sentences). Use specific numbers. Format currency in ₹ (Indian Rupees) when relevant. Reference clinical context where appropriate (e.g. patient counts, bed occupancy, revenue).
+2. Three suggested follow-up questions the user might want to ask next, relevant to the hospital domain.
 
 RESPONSE FORMAT (strictly follow this):
 SUMMARY: <your summary here>
@@ -71,7 +71,7 @@ Results:
             raw = response.choices[0].message.content.strip()
             return self._parse_summary(raw)
 
-        except Exception as e:
+        except Exception:
             # Fallback: generate basic summary without LLM
             return {
                 "summary": f"Query returned {row_count} row(s)." + (

@@ -14,12 +14,12 @@ class Settings(BaseSettings):
     azure_openai_deployment: str = "gpt-4o"
     azure_openai_api_version: str = "2024-12-01-preview"
 
-    # WMS MySQL (read-only)
-    wms_db_host: str = "localhost"
-    wms_db_port: int = 3306
-    wms_db_name: str = "wms_db"
-    wms_db_user: str = "wms_ai_readonly"
-    wms_db_password: str = ""
+    # HMS PostgreSQL (read-only)
+    hms_db_host: str = "localhost"
+    hms_db_port: int = 5432
+    hms_db_name: str = "hms_db"
+    hms_db_user: str = "hms_ai_readonly"
+    hms_db_password: str = ""
 
     # SQLite for threads
     sqlite_db_path: str = "./threads.db"
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     query_timeout_seconds: int = 10
     cors_origins: str = "http://localhost:5173,http://localhost:3001"
 
-    # JWT (shared with WMS ERP)
+    # JWT (shared with HMS ERP)
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
 

@@ -8,7 +8,6 @@ from app.utils.auth import verify_token
 
 from app.models.schemas import QueryRequest, FollowUpRequest, QueryResponse, ChartSuggestion
 from app.services.sql_generator import SQLGenerator, SQLGenerationError
-from app.services.sql_validator import SQLValidationError
 from app.services.query_executor import QueryExecutor, QueryExecutionError
 from app.services.result_formatter import ResultFormatter
 from app.services.thread_manager import ThreadManager
@@ -102,7 +101,7 @@ async def query(request: QueryRequest, token=Depends(verify_token)):
             thread_id=thread_id,
             node_id=node_id,
             question=request.question,
-            summary="This question can't be answered from the warehouse database. " + explanation,
+            summary="This question can't be answered from the hospital database. " + explanation,
         )
 
     # ── Step 3: Execute SQL ───────────────────────────────────
