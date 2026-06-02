@@ -123,24 +123,72 @@ def validate_sql(sql: str) -> str:
     return cleaned.rstrip(";")
 
 
+# Functions that use FROM as syntax (EXTRACT(field FROM expr)), not a table clause
+_FUNCTIONS_WITH_INNER_FROM = (
+    "EXTRACT", "TRIM", "SUBSTRING", "OVERLAY", "POSITION",
+)
+
+# Identifiers that are never table names (keywords, functions, literals)
+_NON_TABLE_IDENTIFIERS = frozenset({
+    "SELECT", "WHERE", "ON", "AND", "OR", "AS", "INNER", "LEFT", "RIGHT",
+    "OUTER", "CROSS", "NATURAL", "FULL", "JOIN", "FROM", "GROUP", "ORDER",
+    "BY", "HAVING", "LIMIT", "OFFSET", "UNION", "ALL", "DISTINCT", "NULL",
+    "TRUE", "FALSE", "CASE", "WHEN", "THEN", "ELSE", "END", "IN", "NOT",
+    "BETWEEN", "LIKE", "IS", "EXISTS", "ASC", "DESC", "SET", "LATERAL", "ONLY",
+    "CURRENT_DATE", "CURRENT_TIMESTAMP", "CURRENT_TIME", "LOCALTIME",
+    "LOCALTIMESTAMP", "CURDATE", "CURTIME", "NOW", "SYSDATE", "TODAY",
+    "INTERVAL", "DATE_TRUNC", "COALESCE", "NULLIF", "CAST", "COUNT",
+    "SUM", "AVG", "MIN", "MAX", "YEAR", "MONTH", "DAY", "HOUR", "MINUTE",
+    "SECOND", "DATE", "TIME", "TIMESTAMP", "FIELD", "IFNULL", "CONCAT",
+})
+
+
+def _scrub_from_in_functions(sql: str) -> str:
+    """
+    Neutralize FROM inside function calls (e.g. EXTRACT(YEAR FROM col)).
+    A naive (FROM|JOIN) regex otherwise treats alias.column and CURRENT_DATE as tables.
+    """
+    scrubbed = sql
+    for func in _FUNCTIONS_WITH_INNER_FROM:
+        scrubbed = re.sub(
+            rf"(\b{func}\s*\([^)]*?)\s+FROM\s+",
+            r"\1 , ",
+            scrubbed,
+            flags=re.IGNORECASE,
+        )
+    return scrubbed
+
+
 def _extract_table_names(sql: str) -> set:
     """
-    Extract table names from SQL query.
-    Handles FROM, JOIN, and subqueries.
+    Extract real table names from FROM / JOIN clauses.
+    Ignores table aliases and FROM tokens inside SQL functions.
     """
-    tables = set()
+    scrubbed = _scrub_from_in_functions(sql)
+    tables: set[str] = set()
+    aliases: set[str] = set()
 
-    pattern = r'(?:FROM|JOIN)\s+(\w+)'
-    matches = re.findall(pattern, sql, re.IGNORECASE)
+    clause_pattern = re.compile(
+        r"\b(?:FROM|(?:INNER|LEFT|RIGHT|FULL|CROSS|NATURAL)?\s*JOIN)\s+"
+        r"(\w+)"
+        r"(?:\s+(?:AS\s+)?(\w+))?",
+        re.IGNORECASE,
+    )
 
-    skip_keywords = {
-        'SELECT', 'WHERE', 'ON', 'AND', 'OR', 'AS',
-        'INNER', 'LEFT', 'RIGHT', 'OUTER', 'CROSS', 'NATURAL', 'FULL',
-        'LATERAL', 'ONLY',
+    for match in clause_pattern.finditer(scrubbed):
+        table_name, alias = match.group(1), match.group(2)
+        table_upper = table_name.upper()
+        alias_upper = alias.upper() if alias else None
+
+        if table_upper in _NON_TABLE_IDENTIFIERS:
+            continue
+
+        tables.add(table_name)
+
+        if alias and alias_upper not in _NON_TABLE_IDENTIFIERS:
+            aliases.add(alias)
+
+    return {
+        t for t in tables
+        if t.lower() not in aliases and t.upper() not in _NON_TABLE_IDENTIFIERS
     }
-
-    for match in matches:
-        if match.upper() not in skip_keywords:
-            tables.add(match)
-
-    return tables
